@@ -2,6 +2,10 @@ package models
 
 import (
 	"fmt"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -11,11 +15,11 @@ import (
 )
 
 type keyMap struct {
-	Help      key.Binding
-	Quit      key.Binding
-	Tab       key.Binding
-	StartSync key.Binding
-	StopSync  key.Binding
+	Help       key.Binding
+	Quit       key.Binding
+	Tab        key.Binding
+	StartSync  key.Binding
+	StopSync   key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
@@ -146,11 +150,40 @@ func (m AppModel) View() string {
 	)
 }
 
+func expandPath(path string) (string, error) {
+	if !strings.HasPrefix(path, "~") {
+		return path, nil
+	}
+
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+
+	if path == "~" {
+		return usr.HomeDir, nil
+	}
+
+	return filepath.Join(usr.HomeDir, path[2:]), nil
+}
+
 func renderConfigView(m AppModel) string {
+	defaultFilePath := "~/.hdtconfig"
+
+	expandedPath, err := expandPath(defaultFilePath)
+	if err != nil {
+		return styles.TextStyle.Render("Erro ao expandir o caminho: " + err.Error())
+	}
+
+	data, err := os.ReadFile(expandedPath)
+	if err != nil {
+		return styles.TextStyle.Render("Erro ao ler o arquivo de configuração: " + err.Error())
+	}
+
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		styles.TitleStyle.Render("Configuração"),
-		styles.TextStyle.Render("Origem: "+m.sourceDir),
+		styles.TextStyle.Render("Origens: "+string(data)),
 		styles.TextStyle.Render("Destino: "+m.targetDir),
 		styles.TipStyle.Render("Presione 'o' para selecionar origem, 'd' para destino"),
 	)
