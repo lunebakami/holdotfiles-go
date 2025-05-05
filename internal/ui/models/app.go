@@ -1,25 +1,24 @@
 package models
 
 import (
+	"bufio"
 	"fmt"
 	"os"
-	"os/user"
-	"path/filepath"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/lunebakami/holdotfiles-go/cmd/lib"
 	"github.com/lunebakami/holdotfiles-go/internal/ui/styles"
 )
 
 type keyMap struct {
-	Help       key.Binding
-	Quit       key.Binding
-	Tab        key.Binding
-	StartSync  key.Binding
-	StopSync   key.Binding
+	Help      key.Binding
+	Quit      key.Binding
+	Tab       key.Binding
+	StartSync key.Binding
+	StopSync  key.Binding
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
@@ -74,10 +73,11 @@ type AppModel struct {
 	targetDir   string
 	syncStatus  string
 	activeFiles []string
+	appwrite    *lib.AppwriteClient
 }
 
-func NewAppModel() AppModel {
-	return AppModel{
+func NewAppModel(appwrite *lib.AppwriteClient) AppModel {
+	m := AppModel{
 		state:       stateConfig,
 		help:        help.New(),
 		showHelp:    false,
@@ -85,7 +85,12 @@ func NewAppModel() AppModel {
 		targetDir:   "",
 		syncStatus:  "Pronto pra configurar",
 		activeFiles: []string{},
+		appwrite:    appwrite,
 	}
+
+	m.LoadConfig()
+
+	return m
 }
 
 func (m AppModel) Init() tea.Cmd {
@@ -107,7 +112,7 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.StartSync):
 			if m.sourceDir != "" && m.targetDir != "" {
 				m.syncStatus = "Sincronizando..."
-				// call sync
+				m.appwrite.Sync(m.activeFiles)
 				return m, nil
 			}
 		}
@@ -150,42 +155,12 @@ func (m AppModel) View() string {
 	)
 }
 
-func expandPath(path string) (string, error) {
-	if !strings.HasPrefix(path, "~") {
-		return path, nil
-	}
-
-	usr, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-
-	if path == "~" {
-		return usr.HomeDir, nil
-	}
-
-	return filepath.Join(usr.HomeDir, path[2:]), nil
-}
-
 func renderConfigView(m AppModel) string {
-	defaultFilePath := "~/.hdtconfig"
-
-	expandedPath, err := expandPath(defaultFilePath)
-	if err != nil {
-		return styles.TextStyle.Render("Erro ao expandir o caminho: " + err.Error())
-	}
-
-	data, err := os.ReadFile(expandedPath)
-	if err != nil {
-		return styles.TextStyle.Render("Erro ao ler o arquivo de configuração: " + err.Error())
-	}
-
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		styles.TitleStyle.Render("Configuração"),
-		styles.TextStyle.Render("Origens: "+string(data)),
+		styles.TextStyle.Render("Origens: "+m.sourceDir),
 		styles.TextStyle.Render("Destino: "+m.targetDir),
-		styles.TipStyle.Render("Presione 'o' para selecionar origem, 'd' para destino"),
 	)
 }
 
@@ -212,4 +187,41 @@ func renderSyncView(m AppModel) string {
 		styles.TextStyle.Render("Status: "+m.syncStatus),
 		styles.TipStyle.Render("Presione 's' para iniciar, 'x' para parar"),
 	)
+}
+
+func (m *AppModel) LoadConfig() {
+	defaultFilePath, err := lib.ExpandPath("~/.hdtconfig")
+	if err != nil {
+		m.syncStatus = "Erro ao expandir o caminho do arquivo de configuração"
+		return
+	}
+
+	file, err := os.Open(defaultFilePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to open file: %v", err)
+		m.syncStatus = "Erro ao abrir o arquivo de configuração"
+		return 
+	}
+	defer file.Close()
+
+	paths := []string{}
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		expandedPath, err := lib.ExpandPath(line)
+		if err != nil {
+			m.syncStatus = "Erro ao expandir o caminho do arquivo de configuração"
+		}
+		paths = append(paths, expandedPath)
+	}
+
+	if err := scanner.Err(); err != nil {
+		m.syncStatus = "Erro ao ler o arquivo de configuração"
+		return
+	}
+
+	m.activeFiles = paths
+	m.sourceDir = defaultFilePath
+	m.targetDir = "appwrite"
 }
