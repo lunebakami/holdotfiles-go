@@ -39,10 +39,15 @@ em GOBIN/GOPATH; nesse caso os modelos de configuração não são criados.
 - envia um novo objeto `<computador>/backup-AAAA-MM-DDTHH-MM-SS.nanosZ.zip` para o R2;
 - calcula SHA-256 do ZIP para verificar sua integridade na restauração;
 - mantém máquinas separadas por um prefixo (por padrão, o hostname);
+- mantém cada versão como um ZIP separado com data/hora UTC no nome;
 - permite cancelar uma sincronização em andamento com `x`.
 
 Restauração disponível na TUI e CLI: mostra uma prévia e instala com cópia dos arquivos substituídos.
-Cada envio alterado substitui o ZIP anterior daquele computador; não há histórico remoto.
+Na TUI, `r` carrega as versões, as setas selecionam uma e Enter mostra a prévia.
+Na CLI, `hdt --list` mostra cada chave; `hdt --restore 'hostname/backup-DATA.zip'`
+seleciona uma versão específica. `hdt --restore hostname` usa a mais recente.
+Cada envio cria uma versão; versões antigas não são removidas automaticamente.
+O formato legado `hostname/backup.zip` também continua visível e restaurável.
 
 ## Configuração
 
