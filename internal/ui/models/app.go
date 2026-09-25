@@ -1,15 +1,17 @@
 package models
 
 import (
-	"bufio"
+	"context"
+	"errors"
 	"fmt"
-	"os"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/lunebakami/holdotfiles-go/cmd/lib"
+	"github.com/lunebakami/holdotfiles-go/internal/storage"
 	"github.com/lunebakami/holdotfiles-go/internal/ui/styles"
 )
 
@@ -22,37 +24,19 @@ type keyMap struct {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Help, k.Quit, k.Tab}
+	return []key.Binding{k.Help, k.Quit, k.Tab, k.StartSync}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.Help, k.Quit},
-		{k.Tab, k.StartSync, k.StopSync},
-	}
+	return [][]key.Binding{{k.Help, k.Quit}, {k.Tab, k.StartSync, k.StopSync}}
 }
 
 var keys = keyMap{
-	Help: key.NewBinding(
-		key.WithKeys("?"),
-		key.WithHelp("?", "ajuda"),
-	),
-	Quit: key.NewBinding(
-		key.WithKeys("q", "ctrl+c"),
-		key.WithHelp("q", "sair"),
-	),
-	Tab: key.NewBinding(
-		key.WithKeys("tab"),
-		key.WithHelp("tab", "alternar visões"),
-	),
-	StartSync: key.NewBinding(
-		key.WithKeys("s"),
-		key.WithHelp("s", "iniciar sincronização"),
-	),
-	StopSync: key.NewBinding(
-		key.WithKeys("x"),
-		key.WithHelp("x", "parar sincronização"),
-	),
+	Help:      key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "ajuda")),
+	Quit:      key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "sair")),
+	Tab:       key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "alternar visão")),
+	StartSync: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sincronizar")),
+	StopSync:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "cancelar")),
 }
 
 type appState int
@@ -61,61 +45,139 @@ const (
 	stateConfig appState = iota
 	stateMonitor
 	stateSync
+	stateRestore
 )
+
+type syncFinishedMsg struct {
+	result storage.Result
+	err    error
+}
 
 type AppModel struct {
 	state       appState
 	width       int
 	height      int
 	help        help.Model
+	spinner     spinner.Model
 	showHelp    bool
-	sourceDir   string
-	targetDir   string
+	configFile  string
+	paths       []string
 	syncStatus  string
-	activeFiles []string
-	appwrite    *lib.AppwriteClient
+	lastError   string
+	syncing     bool
+	cancel      context.CancelFunc
+	syncer      storage.Syncer
+	restore     restoreState
+	quitting    bool
+	configError string
 }
 
-func NewAppModel(appwrite *lib.AppwriteClient) AppModel {
-	m := AppModel{
-		state:       stateConfig,
-		help:        help.New(),
-		showHelp:    false,
-		sourceDir:   "",
-		targetDir:   "",
-		syncStatus:  "Pronto pra configurar",
-		activeFiles: []string{},
-		appwrite:    appwrite,
+func NewAppModel(syncer storage.Syncer, paths []string, configFile string) AppModel {
+	indicator := spinner.New()
+	indicator.Spinner = spinner.Dot
+	indicator.Style = styles.TipStyle
+	return AppModel{
+		state:      stateConfig,
+		help:       help.New(),
+		spinner:    indicator,
+		configFile: configFile,
+		paths:      append([]string(nil), paths...),
+		syncStatus: "Pronto para sincronizar",
+		syncer:     syncer,
+		restore:    newRestoreState(),
 	}
-
-	m.LoadConfig()
-
-	return m
 }
 
-func (m AppModel) Init() tea.Cmd {
-	return nil
-}
+func (m AppModel) Init() tea.Cmd { return nil }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if updated, cmd, handled := m.updateRestore(msg); handled {
+		return updated, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, keys.Quit):
+			if m.cancel != nil {
+				m.cancel()
+			}
+			if m.syncing {
+				m.quitting = true
+				m.syncStatus = "Encerrando operação..."
+				return m, nil
+			}
+			m.clearPreview()
 			return m, tea.Quit
 		case key.Matches(msg, keys.Help):
 			m.showHelp = !m.showHelp
 			return m, nil
 		case key.Matches(msg, keys.Tab):
-			m.state = (m.state + 1) % 3
-			return m, nil
-		case key.Matches(msg, keys.StartSync):
-			if m.sourceDir != "" && m.targetDir != "" {
-				m.syncStatus = "Sincronizando..."
-				m.appwrite.Sync(m.activeFiles)
+			if m.syncing {
 				return m, nil
 			}
+			m.state = (m.state + 1) % 4
+			if m.state == stateRestore && !m.restore.loaded {
+				return m.startListing()
+			}
+			return m, nil
+		case key.Matches(msg, keys.StartSync):
+			if m.syncing {
+				return m, nil
+			}
+			if len(m.paths) == 0 {
+				m.state = stateSync
+				m.syncStatus = "Configure os caminhos antes de enviar"
+				m.lastError = m.configError
+				return m, nil
+			}
+			m.clearPreview()
+			ctx, cancel := context.WithCancel(context.Background())
+			m.cancel = cancel
+			m.syncing = true
+			m.lastError = ""
+			m.syncStatus = "Compactando e enviando backup.zip..."
+			m.state = stateSync
+			return m, tea.Batch(m.spinner.Tick, syncCmd(ctx, m.syncer, m.paths))
+		case key.Matches(msg, keys.StopSync):
+			if m.syncing && m.cancel != nil {
+				m.cancel()
+				m.syncStatus = "Cancelando..."
+			}
+			return m, nil
 		}
+	case spinner.TickMsg:
+		if !m.syncing {
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	case syncFinishedMsg:
+		m.syncing = false
+		if m.cancel != nil {
+			m.cancel()
+		}
+		m.cancel = nil
+		if m.quitting {
+			m.clearPreview()
+			return m, tea.Quit
+		}
+		m.lastError = ""
+		if msg.err != nil && !errors.Is(msg.err, context.Canceled) {
+			m.lastError = shorten(msg.err.Error(), 240)
+		}
+		summary := fmt.Sprintf("%d enviados, %d inalterados, %d falhas (ZIP)", msg.result.Uploaded, msg.result.Skipped, msg.result.Failed)
+		switch {
+		case errors.Is(msg.err, context.Canceled):
+			m.syncStatus = "Sincronização cancelada — " + summary
+		case msg.err != nil:
+			m.syncStatus = "Falha na sincronização — " + summary
+		case msg.result.Uploaded == 0 && msg.result.Skipped == 0:
+			m.syncStatus = "Nenhum arquivo encontrado"
+		default:
+			m.syncStatus = "Sincronização concluída — " + summary
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -124,104 +186,127 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func syncCmd(ctx context.Context, syncer storage.Syncer, paths []string) tea.Cmd {
+	return func() tea.Msg {
+		result, err := syncer.Sync(ctx, paths)
+		return syncFinishedMsg{result: result, err: err}
+	}
+}
+
 func (m AppModel) View() string {
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	if width < 36 {
+		return "Holdotfiles\nAmplie o terminal (mín. 36 colunas).\nq sair"
+	}
+	frameWidth := min(width-2, 104)
+	header := styles.HeaderStyle.Render("◈  Holdotfiles") + "  " + styles.Muted.Render("seus dotfiles, em qualquer lugar")
+	var tabs []string
+	labels := []string{"Visão geral", "Arquivos", "Backup", "Restaurar"}
+	if width < 65 {
+		labels = []string{"Geral", "Arquivos", "Backup", "Restaurar"}
+	}
+	for i, label := range labels {
+		style := styles.Tab
+		if int(m.state) == i {
+			style = styles.ActiveTab
+		}
+		tabs = append(tabs, style.Render(label))
+	}
+	navigation := strings.Join(tabs, " ")
+
 	var content string
-
-	header := styles.HeaderStyle.Render("Holdotfiles - Sync your dotfiles")
-
 	switch m.state {
 	case stateConfig:
-		content = renderConfigView(m)
+		content = m.renderConfigView()
 	case stateMonitor:
-		content = renderMonitorView(m)
+		content = m.renderMonitorView()
 	case stateSync:
-		content = renderSyncView(m)
+		content = m.renderSyncView()
+	case stateRestore:
+		content = m.renderRestoreView()
 	}
 
-	status := styles.StatusStyle.Render(fmt.Sprintf("Status: %s", m.syncStatus))
-	helpView := ""
+	statusText := "●  " + m.syncStatus
+	if m.syncing {
+		statusText = m.spinner.View() + " " + statusText
+	}
+	statusStyle := styles.StatusStyle
+	if m.lastError != "" {
+		statusStyle = statusStyle.Foreground(lipgloss.Color("#FDA4AF"))
+	}
+	status := statusStyle.Width(frameWidth).Render(statusText)
+	helpView := styles.FooterStyle.Render("tab navegar   s enviar   r restaurar   ? ajuda   q sair")
+	if m.syncing {
+		helpView = styles.FooterStyle.Render("x cancelar operação   q cancelar e sair")
+	}
 	if m.showHelp {
-		helpView = m.help.View(keys)
-	} else {
-		helpView = styles.FooterStyle.Render("? para ajuda • q para sair")
+		helpView = styles.FooterStyle.Render("tab trocar tela • s enviar ZIP • r listar backups\n↑/↓ selecionar • enter prévia • i instalar • esc voltar\nx cancelar operação • q sair • ? fechar ajuda")
 	}
+	panel := styles.Panel.Width(max(1, frameWidth-2)).Render(content)
+	layout := lipgloss.JoinVertical(lipgloss.Left, header, "", navigation, panel, status, "", helpView)
+	return lipgloss.NewStyle().Margin(0, 1).MaxWidth(width).Render(layout)
+}
 
+func (m AppModel) renderConfigView() string {
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		header,
-		content,
-		status,
-		helpView,
+		styles.TitleStyle.Render("Tudo pronto para levar seus dotfiles"),
+		styles.Badge.Render("CLOUDFLARE R2")+"  "+styles.Badge.Render("ZIP"),
+		"",
+		styles.Muted.Render("DESTINO"),
+		styles.TextStyle.Render(m.syncer.Target()),
+		"",
+		styles.Muted.Render("CONFIGURAÇÃO"),
+		styles.TextStyle.Render(m.configFile),
+		styles.Muted.Render(fmt.Sprintf("%d caminhos selecionados", len(m.paths))),
+		"",
+		styles.TipStyle.Render("s  Criar backup")+"    "+styles.TipStyle.Render("r  Restaurar backup"),
 	)
 }
 
-func renderConfigView(m AppModel) string {
+func (m AppModel) renderMonitorView() string {
+	lines := make([]string, 0, len(m.paths))
+	for _, filename := range m.paths {
+		lines = append(lines, styles.Muted.Render("  › ")+styles.FileStyle.Render(filename))
+	}
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		styles.TitleStyle.Render("Configuração"),
-		styles.TextStyle.Render("Origens: "+m.sourceDir),
-		styles.TextStyle.Render("Destino: "+m.targetDir),
+		styles.TitleStyle.Render("Arquivos configurados"),
+		styles.Muted.Render("Pastas incluem seus arquivos e subpastas.")+"\n",
+		styles.TextStyle.Render(strings.Join(lines, "\n")),
 	)
 }
 
-func renderMonitorView(m AppModel) string {
-	fileList := "Nenhum arquivo monitorado"
-	if len(m.activeFiles) > 0 {
-		fileList = ""
-		for _, f := range m.activeFiles {
-			fileList += styles.FileStyle.Render(f) + "\n"
-		}
+func (m AppModel) renderSyncView() string {
+	tip := "s  Compactar e enviar"
+	if m.syncing {
+		tip = "x  Cancelar operação"
 	}
-
+	content := []string{
+		styles.TitleStyle.Render("Seu próximo backup"),
+		styles.Muted.Render("COMPACTAR  →  VERIFICAR  →  ENVIAR"),
+		"",
+		styles.TextStyle.Render(m.syncer.Target()),
+		styles.Muted.Render("backup.zip • caminhos relativos à sua pasta pessoal"),
+		"",
+		styles.TipStyle.Render(tip),
+	}
+	if m.lastError != "" {
+		content = append(content, styles.ErrorStyle.Render("Erro: "+m.lastError))
+	}
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		styles.TitleStyle.Render("Monitoramento"),
-		styles.TextStyle.Render(fileList),
+		content...,
 	)
 }
 
-func renderSyncView(m AppModel) string {
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		styles.TitleStyle.Render("Sincronização"),
-		styles.TextStyle.Render("Status: "+m.syncStatus),
-		styles.TipStyle.Render("Presione 's' para iniciar, 'x' para parar"),
-	)
-}
-
-func (m *AppModel) LoadConfig() {
-	defaultFilePath, err := lib.ExpandPath("~/.hdtconfig")
-	if err != nil {
-		m.syncStatus = "Erro ao expandir o caminho do arquivo de configuração"
-		return
+func shorten(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
 	}
-
-	file, err := os.Open(defaultFilePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to open file: %v", err)
-		m.syncStatus = "Erro ao abrir o arquivo de configuração"
-		return 
-	}
-	defer file.Close()
-
-	paths := []string{}
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		expandedPath, err := lib.ExpandPath(line)
-		if err != nil {
-			m.syncStatus = "Erro ao expandir o caminho do arquivo de configuração"
-		}
-		paths = append(paths, expandedPath)
-	}
-
-	if err := scanner.Err(); err != nil {
-		m.syncStatus = "Erro ao ler o arquivo de configuração"
-		return
-	}
-
-	m.activeFiles = paths
-	m.sourceDir = defaultFilePath
-	m.targetDir = "appwrite"
+	return string(runes[:limit-1]) + "…"
 }

@@ -1,0 +1,6 @@
+# Um caminho por linha, relativo ao diretório pessoal.
+# Edite antes de usar e inclua somente arquivos que deseja enviar.
+~/.ssh/config
+~/.config/zsh/aliases.zsh
+# ~/.gitconfig
+# ~/.config/nvim

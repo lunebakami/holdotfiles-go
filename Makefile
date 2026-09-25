@@ -1,24 +1,25 @@
-.PHONY: build test clean deps
+.PHONY: build test vet fmt clean deps run install
 
 deps:
-	go get github.com/charmbracelet/bubbletea
-	go get github.com/charmbracelet/lipgloss
-	go get github.com/charmbracelet/bubbles
-	go get github.com/fsnotify/fsnotify
+	go mod download
 
-build: deps
-	go build -o bin/filesync ./cmd/filesync
+build:
+	go build -o bin/hdt ./cmd/hdt
 
-test: 
+test:
 	go test ./...
+
+vet:
+	go vet ./...
+
+fmt:
+	gofmt -w $$(find . -name '*.go' -not -path './vendor/*')
 
 clean:
 	rm -rf bin
 
 run:
-	go run ./cmd/filesync
+	go run ./cmd/hdt
 
 install:
-	go install ./cmd/filesync
-
-
+	sh ./install.sh

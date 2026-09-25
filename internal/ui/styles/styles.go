@@ -3,25 +3,30 @@ package styles
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	primaryColor   = lipgloss.Color("#7D56F4")
-	secondaryColor = lipgloss.Color("#2D3748")
-	accentColor    = lipgloss.Color("#F472B6")
+	primaryColor   = lipgloss.Color("#A78BFA")
+	secondaryColor = lipgloss.Color("#202838")
+	accentColor    = lipgloss.Color("#67E8F9")
 	textColor      = lipgloss.Color("#E2E8F0")
-	errorColor     = lipgloss.Color("#FC8181")
-	successColor   = lipgloss.Color("#68D391")
+	errorColor     = lipgloss.Color("#FDA4AF")
+	successColor   = lipgloss.Color("#6EE7B7")
+
+	Muted = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8"))
+	Panel = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#475569")).Padding(1, 2)
+	Tab       = lipgloss.NewStyle().Foreground(lipgloss.Color("#94A3B8")).Padding(0, 1)
+	ActiveTab = lipgloss.NewStyle().Foreground(lipgloss.Color("#111827")).
+			Background(primaryColor).Bold(true).Padding(0, 1)
+	Selected = lipgloss.NewStyle().Foreground(accentColor).Background(secondaryColor).Bold(true)
+	Badge    = lipgloss.NewStyle().Foreground(accentColor).Background(secondaryColor).Padding(0, 1)
 
 	HeaderStyle = lipgloss.NewStyle().
-			Foreground(textColor).
-			Background(primaryColor).
+			Foreground(primaryColor).
 			Bold(true).
-			Padding(0, 1).
-			Width(100).
-			Align(lipgloss.Center)
+			Padding(0, 1)
 
 	TitleStyle = lipgloss.NewStyle().
 			Foreground(primaryColor).
 			Bold(true).
-			MarginTop(1).
 			MarginBottom(1)
 
 	TextStyle = lipgloss.NewStyle().
@@ -33,14 +38,14 @@ var (
 			Padding(0, 1)
 
 	FooterStyle = lipgloss.NewStyle().
-			Foreground(textColor).
-			Italic(true)
+			Foreground(lipgloss.Color("#94A3B8"))
 
 	FileStyle = lipgloss.NewStyle().
 			Foreground(accentColor)
 
+	ErrorStyle = lipgloss.NewStyle().
+			Foreground(errorColor)
+
 	TipStyle = lipgloss.NewStyle().
-			Foreground(successColor).
-			Italic(true).
-			MarginTop(1)
+			Foreground(successColor)
 )
