@@ -1,131 +1,125 @@
 # Holdotfiles
 
-Backup e instalação de dotfiles em ZIP usando Cloudflare R2, com interface de terminal e CLI.
+Back up and restore dotfiles as ZIP archives using Cloudflare R2, with a terminal UI and CLI.
 
-**Nome do projeto: Holdotfiles. Comando: `hdt`.** Sem argumentos, abre a TUI.
+**Project name: Holdotfiles. Command: `hdt`.** Run `hdt` without arguments to open the TUI.
 
-## Instalação rápida
+## Quick install
 
-Requisitos: Linux, curl, tar e Go 1.24.1 ou superior. O instalador baixa o
-código e as dependências Go, então precisa de acesso à internet. Não é necessário
-instalar Git nem usar sudo.
+Requirements: Linux, `curl`, `tar`, and Go 1.24.1 or later. The installer downloads
+the source code and Go dependencies, so an internet connection is required. Git
+and `sudo` are not required.
 
-```bash
+```sh
 curl -fsSL https://raw.githubusercontent.com/lunebakami/holdotfiles-go/main/install.sh | sh
 ```
 
-O instalador compila a versão publicada no GitHub e instala em `~/.local/bin/hdt`. Ele cria
-modelos de configuração sem sobrescrever arquivos existentes. Para atualizar,
-execute o mesmo comando novamente. Também é possível clonar o repositório e rodar
-`sh install.sh` para compilar alterações locais.
+The installer builds the version published on GitHub and installs it to
+`~/.local/bin/hdt`. It creates configuration templates without overwriting
+existing files. Run the same command again to update. You can also clone the
+repository and run `sh install.sh` to build local changes.
 
-Se `~/.local/bin` ainda não estiver no PATH, adicione ao seu `~/.zshrc`:
+If `~/.local/bin` is not on your `PATH`, add this to `~/.zshrc`:
 
 ```zsh
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Alternativas: `make install` usa o mesmo instalador;
-`sh install.sh --prefix /caminho/absoluto` instala em `/caminho/absoluto/bin/hdt`.
-Quem usa Go pode executar `go install ./cmd/hdt` no checkout, com instalação
-em GOBIN/GOPATH; nesse caso os modelos de configuração não são criados.
+Alternatives: `make install` uses the same installer; `sh install.sh --prefix
+/absolute/path` installs to `/absolute/path/bin/hdt`. Go users can run
+`go install ./cmd/hdt` from a checkout; this does not create configuration templates.
 
-## O que ele faz
+## Features
 
-- lê arquivos e diretórios de `~/.hdtconfig`;
-- percorre diretórios recursivamente;
-- compacta os caminhos em um ZIP cuja raiz representa o diretório pessoal;
-- envia um novo objeto `<computador>/backup-AAAA-MM-DDTHH-MM-SS.nanosZ.zip` para o R2;
-- calcula SHA-256 do ZIP para verificar sua integridade na restauração;
-- mantém máquinas separadas por um prefixo (por padrão, o hostname);
-- mantém cada versão como um ZIP separado com data/hora UTC no nome;
-- permite cancelar uma sincronização em andamento com `x`.
+- Reads files and directories listed in `~/.hdtconfig`.
+- Recursively includes directory contents.
+- Creates a ZIP whose root represents the home directory.
+- Uploads each backup as a separate object named
+  `<computer>/backup-YYYY-MM-DDTHH-MM-SS.nanosZ.zip` in R2.
+- Calculates a SHA-256 digest and verifies archive integrity during restore.
+- Separates computers by a prefix (the hostname by default).
+- Lets you cancel an active sync with `x`.
 
-Restauração disponível na TUI e CLI: mostra uma prévia e instala com cópia dos arquivos substituídos.
-Na TUI, `r` carrega as versões, as setas selecionam uma e Enter mostra a prévia.
-Na CLI, `hdt --list` mostra cada chave; `hdt --restore 'hostname/backup-DATA.zip'`
-seleciona uma versão específica. `hdt --restore hostname` usa a mais recente.
-Cada envio cria uma versão; versões antigas não são removidas automaticamente.
-O formato legado `hostname/backup.zip` também continua visível e restaurável.
+Restore is available in the TUI and CLI. It previews changes and saves replaced
+files in a recovery folder before installing. In the TUI, press `r` to load
+versions, use the arrow keys to select one, and press Enter to preview. In the
+CLI, `hdt --list` displays each object key; use
+`hdt --restore 'hostname/backup-DATE.zip'` to select a specific version, or
+`hdt --restore hostname` to select the latest. Every upload creates a new
+version, and older versions are not deleted automatically. The legacy
+`hostname/backup.zip` object remains available for restore.
 
-## Configuração
+## Configuration
 
-1. Crie um bucket Standard no painel do Cloudflare R2.
-2. Crie um API Token limitado ao bucket, com permissão Object Read & Write.
-3. Preencha `~/.config/holdotfiles/.env` (criado pelo instalador) com as credenciais. Se usa XDG_CONFIG_HOME, o arquivo fica em `$XDG_CONFIG_HOME/holdotfiles/.env`.
-4. Crie `~/.hdtconfig`, com um caminho por linha:
+1. Create a Standard bucket in the Cloudflare R2 dashboard.
+2. Create an API token limited to that bucket with Object Read & Write access.
+3. Add your credentials to `~/.config/holdotfiles/.env` (created by the
+   installer). With `XDG_CONFIG_HOME`, use
+   `$XDG_CONFIG_HOME/holdotfiles/.env` instead.
+4. Create `~/.hdtconfig` with one path per line:
 
 ```text
-# Arquivos individuais
+# Individual files
 ~/.zshrc
 ~/.gitconfig
 
-# Diretórios são percorridos recursivamente
+# Directories are included recursively
 ~/.config/ghostty
 ```
 
-Linhas vazias, comentários iniciados por `#` e caminhos repetidos são ignorados.
+Blank lines, comments starting with `#`, and duplicate paths are ignored.
 
-Exemplo de credenciais:
+Example credentials:
 
 ```dotenv
-R2_ACCOUNT_ID=seu_account_id
-R2_ACCESS_KEY_ID=sua_access_key
-R2_SECRET_ACCESS_KEY=sua_secret_key
+R2_ACCOUNT_ID=your_account_id
+R2_ACCESS_KEY_ID=your_access_key
+R2_SECRET_ACCESS_KEY=your_secret_key
 R2_BUCKET=holdotfiles
-# Opcional; o padrão é o nome do computador:
-R2_PREFIX=meu-computador
+# Optional; defaults to the computer's hostname:
+R2_PREFIX=my-computer
 ```
 
-Um endpoint explícito pode ser definido em `R2_ENDPOINT`; uma lista alternativa
-de origens pode ser escolhida com `HOLDOTFILES_CONFIG`.
-Precedência: variáveis exportadas > `.env` do diretório atual > arquivo global.
-Assim, `hdt` pode ser usado de qualquer pasta. No desenvolvimento, o `.env`
-local continua funcionando. O instalador não copia credenciais do projeto.
+Set `R2_ENDPOINT` to use a custom endpoint. Set `HOLDOTFILES_CONFIG` to use a
+different paths file. Environment variables take precedence over the `.env` file
+in the current directory, which takes precedence over the global `.env` file.
+This lets you run `hdt` from any directory. The local `.env` remains useful for
+development. The installer never copies project credentials.
 
-Para migrar uma instalação anterior, transfira os valores do `.env` local
-para o arquivo global. Não inclua esse arquivo de credenciais no backup.
-O ZIP não possui criptografia própria; o bucket deve permanecer privado.
+To migrate from an earlier installation, move the values from the local `.env`
+to the global file. Do not include credential files in your backup. The ZIP is
+not encrypted; keep the R2 bucket private.
 
-## Execução
+## Usage
 
-```bash
+```sh
 make test
 make build
 ./bin/hdt
 ```
 
-Na interface, use `Tab` para trocar de tela, `s` para sincronizar, `x` para cancelar e `q` para sair.
+In the TUI, use `Tab` to switch screens, `s` to sync, `x` to cancel, and `q` to
+quit. Press `r` to open or refresh the **Restore backup** screen. It shows each
+computer, the upload time in your local timezone, and archive size, with the
+newest versions first. Use `↑`/`↓` to select a version and Enter to download,
+verify, and preview it. Press `i` to install or `Esc` to go back. The arrow keys
+scroll through preview entries. The recovery folder is shown when installation
+finishes.
 
-Use `r` para abrir/atualizar a tela **Restaurar backup**. Ela mostra computador,
-data do último envio no horário local e tamanho do ZIP, com os mais recentes
-primeiro. Selecione com `↑/↓` e pressione `Enter` para baixar e verificar a
-prévia. Use `i` para confirmar a instalação ou `Esc` para voltar. Na prévia,
-as setas rolam os arquivos. A pasta de recuperação aparece ao concluir.
-É possível abrir a TUI para restaurar mesmo sem `~/.hdtconfig`; nesse caso,
-o envio fica indisponível até configurar os caminhos e reabrir o programa.
-O argumento `--dest` também define o destino da restauração na TUI.
+You can open the TUI and restore backups without `~/.hdtconfig`; uploading
+remains unavailable until you configure the paths and restart the program. The
+`--dest` argument also sets the restore destination in the TUI.
 
-A data vem do campo LastModified do R2 e está disponível para ZIPs já enviados.
-Cada envio cria uma versão, mesmo sem alterações. Os nomes usam data/hora UTC;
-a interface mostra o horário local. Nenhuma versão é removida automaticamente.
-O antigo `<computador>/backup.zip` continua disponível para restauração.
-`hdt --list` mostra as chaves completas; use `hdt --restore 'computador/backup-DATA.zip'`
-para uma versão específica, ou `hdt --restore computador` para a mais recente.
-O histórico aumenta o consumo de armazenamento do R2.
+The version date comes from the R2 object's LastModified field. New object names
+use UTC timestamps; the TUI displays local time. Versions are never deleted
+automatically. The legacy `<computer>/backup.zip` object remains restorable.
+`hdt --list` displays full object keys. Use
+`hdt --restore 'computer/backup-DATE.zip'` for a specific version, or
+`hdt --restore computer` for the latest. Keeping more versions uses more R2 storage.
 
-O projeto se chama **Holdotfiles**; o comando é **hdt**. Para instalar:
+## Archive layout
 
-```bash
-make install
-hdt
-```
-
-O diretório `~/.local/bin` precisa estar no `PATH`. Sem argumentos, `hdt` abre a TUI.
-
-## Formato
-
-Para as origens `~/.config/nvim` e `~/kitty.conf`, o ZIP contém:
+For the configured paths `~/.config/nvim` and `~/kitty.conf`, the ZIP contains:
 
 ```text
 backup.zip
@@ -135,83 +129,82 @@ backup.zip
 └── kitty.conf
 ```
 
-O prefixo é o hostname ou `R2_PREFIX`. A raiz do ZIP sempre representa `~`,
-sem incluir o nome do usuário de origem. Diretórios vazios são preservados.
-Links simbólicos para arquivos são seguidos: o ZIP guarda o conteúdo do alvo como
-arquivo comum no caminho original do link. Isso inclui alvos fora de `~`; o
-caminho configurado do link deve estar dentro de `~`. A restauração não recria
-o link nem acompanha alterações futuras no alvo.
-Origens fora de `~`, links quebrados, links para diretórios e arquivos especiais
-são rejeitados. A validação de links no destino da instalação permanece ativa.
-Se uma origem falhar, nenhum ZIP parcial será enviado.
+The prefix is the hostname or `R2_PREFIX`. The ZIP root always represents `~`,
+without the source username. Empty directories are preserved. Symlinks to files
+are followed: the target contents are stored as a regular file at the link's
+original path in the ZIP. This includes targets outside `~`, while the
+configured link path itself must be inside `~`. Restore does not recreate the
+symlink or track later changes to its target.
 
-## Backup e restauração
+Paths outside `~`, broken symlinks, symlinks to directories, and special files
+are rejected. Symlinks in the restore destination are also validated. If any
+source path fails, no partial ZIP is uploaded.
 
-```bash
-# Enviar sem abrir a TUI
+## Backup and restore from the CLI
+
+```sh
+# Upload without opening the TUI
 ./bin/hdt --backup
 
-# Descobrir os nomes de computadores
+# List available versions
 ./bin/hdt --list
 
-# Baixar e mostrar a prévia, sem instalar
-./bin/hdt --restore nome-do-computador
+# Download and preview without installing
+./bin/hdt --restore hostname/backup-DATE.zip
 
-# Instalar no diretório pessoal atual
-./bin/hdt --restore nome-do-computador --apply
+# Install to the current home directory
+./bin/hdt --restore hostname/backup-DATE.zip --apply
 
-# Instalar em outro diretório
-./bin/hdt --restore nome-do-computador --dest /tmp/dotfiles-demo --apply
+# Install to another directory
+./bin/hdt --restore hostname/backup-DATE.zip --dest /tmp/dotfiles-demo --apply
 ```
 
-Listagem e restauração não exigem `~/.hdtconfig` na máquina de destino.
-As credenciais R2 continuam necessárias. A restauração verifica SHA-256,
-valida os caminhos e extrai todo o ZIP em staging antes de iniciar a instalação.
-Entradas que escapam do destino e destinos com links simbólicos são rejeitados.
-Os arquivos anteriores são preservados em `.holdotfiles-recovery-*` dentro do
-destino, com a mesma hierarquia. O programa imprime esse caminho inclusive se a
-instalação falhar parcialmente. Use `--recover` para repor os arquivos dessa cópia.
-Arquivos novos não possuem cópia anterior.
-Não há rollback automático do conjunto nem remoção de arquivos locais extras.
-Permissões dos arquivos são preservadas; diretórios novos usam permissão privada.
+Listing and restoring do not require `~/.hdtconfig` on the destination machine,
+but R2 credentials are required. Restore verifies SHA-256, validates paths, and
+extracts the entire ZIP to a staging area before installation. Entries that
+escape the destination and destinations containing symlinks are rejected.
+Replaced files are preserved under `.holdotfiles-recovery-*` inside the
+destination, with the same directory layout. The recovery path is printed even
+if installation only partially succeeds. Use `--recover` to restore files from
+that copy. Newly created files have no previous copy. Installation is not
+transactional: there is no automatic rollback of the whole set, and extra local
+files are not removed. File permissions are preserved; new directories use
+private permissions.
 
-O protótipo limita o conteúdo descompactado e o download a 1 GiB.
-Backups antigos de objetos individuais permanecem no bucket, mas não aparecem
-em `--list`; execute um novo backup para gerar o ZIP.
+Downloads and uncompressed archive contents are limited to 1 GiB.
 
-## Recuperação local
+## Local recovery
 
-```bash
-# Listar cópias disponíveis no diretório pessoal
+```sh
+# List recovery copies in the home directory
 ./bin/hdt --recoveries
 
-# Conferir o que será recuperado
+# Preview a recovery
 ./bin/hdt --recover .holdotfiles-recovery-123
 
-# Repor os arquivos anteriores
+# Restore the previous files
 ./bin/hdt --recover .holdotfiles-recovery-123 --apply
 ```
 
-Troque o nome pelo exibido em `--recoveries`. Para uma instalação feita com
-`--dest`, informe o mesmo destino tanto na listagem quanto na recuperação:
+Replace the example directory with a name shown by `--recoveries`. If the
+original install used `--dest`, pass the same destination to both commands:
 
-```bash
+```sh
 ./bin/hdt --recoveries --dest /tmp/dotfiles-demo
 ./bin/hdt --recover .holdotfiles-recovery-123 --dest /tmp/dotfiles-demo --apply
 ```
 
-Esse fluxo funciona offline, sem `.env` nem `~/.hdtconfig`. A cópia selecionada
-permanece intacta. Os arquivos atuais substituídos são guardados em uma nova
-pasta de recuperação, permitindo desfazer a recuperação pelo mesmo comando.
-Apenas os arquivos presentes na cópia são repostos: arquivos novos ou extras
-permanecem no destino. Pastas vazias de recuperação retornam uma mensagem sem
-alterar arquivos.
+This works offline and does not require `.env` or `~/.hdtconfig`. The selected
+recovery copy remains intact. Current files that are replaced are saved to a
+new recovery folder, so you can undo the recovery using the same command. Only
+files present in the recovery copy are restored; new or extra files remain in
+the destination. Empty recovery folders produce a message without changing files.
 
-## Testes
+## Tests
 
-```bash
+```sh
 go test -race ./...
 go vet ./...
-# Opt-in: usa o .env, envia apenas dados sintéticos e remove o objeto remoto.
+# Opt-in: uses .env, uploads synthetic data only, then deletes the remote object.
 HOLDOTFILES_LIVE_TEST=1 go test ./internal/storage -run '^TestR2Live$' -v -count=1
 ```
