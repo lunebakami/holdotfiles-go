@@ -1,11 +1,12 @@
 #!/bin/sh
-# Instala a partir do checkout, sem sudo e sem modificar arquivos de shell.
+# Instala a versão publicada ou o checkout local, sem sudo nem alterar o shell.
 set -eu
 
 usage() {
   printf '%s\n' 'Uso: sh install.sh [--prefix DIRETORIO]' \
+    'Ou: curl -fsSL https://raw.githubusercontent.com/lunebakami/holdotfiles-go/main/install.sh | sh' \
     'Padrão: ~/.local (executável em ~/.local/bin/hdt)' \
-    'Requer Go 1.24.1+; configuração existente é preservada.'
+    'Requer curl, tar e Go 1.24.1+; configuração existente é preservada.'
 }
 
 prefix="${HOME}/.local"
@@ -21,20 +22,41 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$prefix" in /*) ;; *) printf '%s\n' 'O prefixo deve ser um caminho absoluto.' >&2; exit 1 ;; esac
+install_tmp=
+download_tmp=
+cleanup() {
+  if [ -n "$install_tmp" ]; then
+    rm -f "$install_tmp/hdt"
+    rmdir "$install_tmp"
+  fi
+  if [ -n "$download_tmp" ]; then rm -rf "$download_tmp"; fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 command -v go >/dev/null 2>&1 || {
   printf '%s\n' 'Instale Go 1.24.1+ (https://go.dev/dl/) e execute novamente.' >&2
   exit 1
 }
-source_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-[ -f "$source_dir/go.mod" ] || { printf '%s\n' 'Execute o instalador dentro de um clone do repositório.' >&2; exit 1; }
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || true)
+if [ -n "$script_dir" ] && [ -f "$script_dir/go.mod" ]; then
+  source_dir=$script_dir
+  download_tmp=
+else
+  command -v curl >/dev/null 2>&1 || { printf '%s\n' 'O modo curl | sh requer curl.' >&2; exit 1; }
+  command -v tar >/dev/null 2>&1 || { printf '%s\n' 'O modo curl | sh requer tar.' >&2; exit 1; }
+  download_tmp=$(mktemp -d "${TMPDIR:-/tmp}/holdotfiles-source-XXXXXX")
+  archive="$download_tmp/source.tar.gz"
+  printf '%s\n' 'Baixando Holdotfiles do GitHub...'
+  curl -fsSL https://github.com/lunebakami/holdotfiles-go/archive/refs/heads/main.tar.gz -o "$archive"
+  tar -xzf "$archive" -C "$download_tmp"
+  source_dir="$download_tmp/holdotfiles-go-main"
+  [ -f "$source_dir/go.mod" ] || { printf '%s\n' 'Não foi possível localizar o código baixado.' >&2; exit 1; }
+fi
 bin_dir="$prefix/bin"
 config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/holdotfiles"
 mkdir -p "$bin_dir"
 install_tmp=$(mktemp -d "$bin_dir/.hdt-install-XXXXXX")
-cleanup() { rm -f "$install_tmp/hdt"; rmdir "$install_tmp"; }
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 printf '%s\n' 'Compilando Holdotfiles...'
 (cd "$source_dir" && go build -trimpath -o "$install_tmp/hdt" ./cmd/hdt)
 chmod 755 "$install_tmp/hdt"

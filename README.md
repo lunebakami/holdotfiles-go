@@ -6,19 +6,18 @@ Backup e instalação de dotfiles em ZIP usando Cloudflare R2, com interface de 
 
 ## Instalação rápida
 
-Requisitos: Linux, Git e Go 1.24.1 ou superior. O build baixa as dependências
-Go e precisa de acesso à internet. Não é necessário usar sudo.
+Requisitos: Linux, curl, tar e Go 1.24.1 ou superior. O instalador baixa o
+código e as dependências Go, então precisa de acesso à internet. Não é necessário
+instalar Git nem usar sudo.
 
 ```bash
-git clone https://github.com/lunebakami/holdotfiles-go.git
-cd holdotfiles-go
-sh install.sh
+curl -fsSL https://raw.githubusercontent.com/lunebakami/holdotfiles-go/main/install.sh | sh
 ```
 
-O instalador compila o checkout e instala em `~/.local/bin/hdt`. Ele cria
+O instalador compila a versão publicada no GitHub e instala em `~/.local/bin/hdt`. Ele cria
 modelos de configuração sem sobrescrever arquivos existentes. Para atualizar,
-no checkout limpo execute `git pull --ff-only` e `sh install.sh` novamente.
-As alterações precisam estar publicadas no GitHub para instalação em outra máquina.
+execute o mesmo comando novamente. Também é possível clonar o repositório e rodar
+`sh install.sh` para compilar alterações locais.
 
 Se `~/.local/bin` ainda não estiver no PATH, adicione ao seu `~/.zshrc`:
 
