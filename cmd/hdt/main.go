@@ -23,7 +23,7 @@ func main() {
 
 func run() error {
 	list := flag.Bool("list", false, "listar computadores com backup ZIP")
-	restore := flag.String("restore", "", "computador cujo backup será instalado")
+	restore := flag.String("restore", "", "chave do ZIP ou computador (versão mais recente)")
 	apply := flag.Bool("apply", false, "instalar após revisar a prévia")
 	home, _ := os.UserHomeDir()
 	dest := flag.String("dest", home, "diretório de destino da restauração")
@@ -81,7 +81,7 @@ func run() error {
 			return err
 		}
 		for _, item := range backups {
-			fmt.Printf("%s\t%s\t%d bytes\n", item.Computer, item.Modified.Local().Format("02/01/2006 15:04:05 MST"), item.Size)
+			fmt.Printf("%s\t%s\t%d bytes\n", item.Key, item.Modified.Local().Format("02/01/2006 15:04:05 MST"), item.Size)
 		}
 		if len(backups) == 0 {
 			fmt.Println("Nenhum backup ZIP encontrado")

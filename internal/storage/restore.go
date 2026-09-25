@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -15,9 +16,8 @@ import (
 	"github.com/lunebakami/holdotfiles-go/internal/backup"
 )
 
-func (r *R2) ArchiveKey() string { return strings.Trim(r.prefix, "/") + "/backup.zip" }
-
 type BackupInfo struct {
+	Key      string
 	Computer string
 	Modified time.Time
 	Size     int64
@@ -29,8 +29,12 @@ func (r *R2) ListBackups(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	names := make([]string, 0, len(backups))
+	seen := make(map[string]bool)
 	for _, item := range backups {
-		names = append(names, item.Computer)
+		if !seen[item.Computer] {
+			names = append(names, item.Computer)
+			seen[item.Computer] = true
+		}
 	}
 	sort.Strings(names)
 	return names, nil
@@ -50,9 +54,11 @@ func (r *R2) ListBackupDetails(ctx context.Context) ([]BackupInfo, error) {
 		}
 		for _, object := range page.Contents {
 			key := aws.ToString(object.Key)
-			if strings.HasSuffix(key, "/backup.zip") {
+			base := path.Base(key)
+			if strings.Contains(key, "/") && (base == "backup.zip" || (strings.HasPrefix(base, "backup-") && strings.HasSuffix(base, ".zip"))) {
 				backups = append(backups, BackupInfo{
-					Computer: strings.TrimSuffix(key, "/backup.zip"),
+					Key:      key,
+					Computer: path.Dir(key),
 					Modified: aws.ToTime(object.LastModified),
 					Size:     aws.ToInt64(object.Size),
 				})
@@ -61,7 +67,7 @@ func (r *R2) ListBackupDetails(ctx context.Context) ([]BackupInfo, error) {
 	}
 	sort.Slice(backups, func(i, j int) bool {
 		if backups[i].Modified.Equal(backups[j].Modified) {
-			return backups[i].Computer < backups[j].Computer
+			return backups[i].Key < backups[j].Key
 		}
 		return backups[i].Modified.After(backups[j].Modified)
 	})
@@ -73,11 +79,28 @@ func (r *R2) Download(ctx context.Context, computer string) (name string, err er
 	if computer == "" || strings.HasPrefix(computer, "/") || strings.Contains(computer, "..") {
 		return "", fmt.Errorf("computador inválido")
 	}
+	key := computer
+	if !strings.HasSuffix(key, ".zip") {
+		items, listErr := r.ListBackupDetails(ctx)
+		if listErr != nil {
+			return "", listErr
+		}
+		key = ""
+		for _, item := range items {
+			if item.Computer == computer {
+				key = item.Key
+				break
+			}
+		}
+		if key == "" {
+			return "", fmt.Errorf("nenhum backup para %q", computer)
+		}
+	}
 	client, ok := r.client.(*s3.Client)
 	if !ok {
 		return "", fmt.Errorf("cliente não suporta download")
 	}
-	object, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(r.bucket), Key: aws.String(computer + "/backup.zip")})
+	object, err := client.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(r.bucket), Key: aws.String(key)})
 	if err != nil {
 		return "", err
 	}

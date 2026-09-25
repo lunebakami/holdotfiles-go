@@ -188,10 +188,14 @@ func (m AppModel) updateRestore(msg tea.Msg) (AppModel, tea.Cmd, bool) {
 				return m, nil, true
 			}
 			computer := m.restore.items[m.restore.selected].Computer
+			key := m.restore.items[m.restore.selected].Key
+			if key == "" {
+				key = computer
+			}
 			destination := m.restore.destination
 			ctx := m.beginRestore("Baixando e verificando o ZIP...")
 			return m, tea.Batch(m.spinner.Tick, func() tea.Msg {
-				archive, err := remote.Download(ctx, computer)
+				archive, err := remote.Download(ctx, key)
 				var plan backup.Plan
 				if err == nil {
 					plan, err = backup.Preview(archive, destination)
@@ -199,7 +203,7 @@ func (m AppModel) updateRestore(msg tea.Msg) (AppModel, tea.Cmd, bool) {
 				if err == nil {
 					err = ctx.Err()
 				}
-				return previewReadyMsg{archive, plan, computer, err}
+				return previewReadyMsg{archive, plan, key, err}
 			}), true
 		case "i":
 			if m.restore.archive == "" {
@@ -226,7 +230,7 @@ func (m AppModel) restoreRows() int {
 func (m AppModel) renderRestoreView() string {
 	lines := []string{styles.TitleStyle.Render("Escolha de onde continuar"),
 		styles.Muted.Render("DESTINO") + "  " + styles.TextStyle.Render(m.restore.destination),
-		styles.Muted.Render("Último envio • horário local • um ZIP por computador"), ""}
+		styles.Muted.Render("Histórico de backups • horário local • mais recentes primeiro"), ""}
 	rows := m.restoreRows()
 	if m.restore.archive != "" {
 		lines = append(lines, styles.Badge.Render("PRÉVIA")+"  "+styles.FileStyle.Render(m.restore.computer))

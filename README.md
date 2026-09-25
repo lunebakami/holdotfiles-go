@@ -36,8 +36,8 @@ em GOBIN/GOPATH; nesse caso os modelos de configuração não são criados.
 - lê arquivos e diretórios de `~/.hdtconfig`;
 - percorre diretórios recursivamente;
 - compacta os caminhos em um ZIP cuja raiz representa o diretório pessoal;
-- envia um objeto `<computador>/backup.zip` para o R2;
-- calcula SHA-256 do ZIP e não reenvia backups inalterados;
+- envia um novo objeto `<computador>/backup-AAAA-MM-DDTHH-MM-SS.nanosZ.zip` para o R2;
+- calcula SHA-256 do ZIP para verificar sua integridade na restauração;
 - mantém máquinas separadas por um prefixo (por padrão, o hostname);
 - permite cancelar uma sincronização em andamento com `x`.
 
@@ -103,8 +103,12 @@ o envio fica indisponível até configurar os caminhos e reabrir o programa.
 O argumento `--dest` também define o destino da restauração na TUI.
 
 A data vem do campo LastModified do R2 e está disponível para ZIPs já enviados.
-Um backup inalterado não é reenviado, portanto mantém a data anterior.
-Há um ZIP por computador, sem histórico de versões.
+Cada envio cria uma versão, mesmo sem alterações. Os nomes usam data/hora UTC;
+a interface mostra o horário local. Nenhuma versão é removida automaticamente.
+O antigo `<computador>/backup.zip` continua disponível para restauração.
+`hdt --list` mostra as chaves completas; use `hdt --restore 'computador/backup-DATA.zip'`
+para uma versão específica, ou `hdt --restore computador` para a mais recente.
+O histórico aumenta o consumo de armazenamento do R2.
 
 O projeto se chama **Holdotfiles**; o comando é **hdt**. Para instalar:
 

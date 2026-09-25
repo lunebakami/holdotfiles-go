@@ -45,7 +45,7 @@ func (m *memoryClient) PutObject(_ context.Context, input *s3.PutObjectInput, _ 
 	return &s3.PutObjectOutput{}, nil
 }
 
-func TestSyncUploadsThenSkipsUnchangedFile(t *testing.T) {
+func TestSyncPreservesEveryVersion(t *testing.T) {
 	home := t.TempDir()
 	filename := filepath.Join(home, ".zshrc")
 	if err := os.WriteFile(filename, []byte("export EDITOR=nvim\n"), 0o600); err != nil {
@@ -61,7 +61,11 @@ func TestSyncUploadsThenSkipsUnchangedFile(t *testing.T) {
 	if first.Uploaded != 1 || first.Skipped != 0 || first.Failed != 0 {
 		t.Fatalf("resultado inesperado: %#v", first)
 	}
-	object := client.objects["laptop/backup.zip"]
+	var object storedObject
+	var firstKey string
+	for key, value := range client.objects {
+		firstKey, object = key, value
+	}
 	zr, err := zip.NewReader(bytes.NewReader(object.body), int64(len(object.body)))
 	if err != nil {
 		t.Fatal(err)
@@ -83,8 +87,11 @@ func TestSyncUploadsThenSkipsUnchangedFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("segunda sincronização: %v", err)
 	}
-	if second.Uploaded != 0 || second.Skipped != 1 || second.Failed != 0 {
+	if second.Uploaded != 1 || second.Skipped != 0 || second.Failed != 0 {
 		t.Fatalf("resultado inesperado: %#v", second)
+	}
+	if len(client.objects) != 2 || !bytes.Equal(client.objects[firstKey].body, object.body) {
+		t.Fatal("versão anterior não preservada")
 	}
 }
 

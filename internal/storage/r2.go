@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -110,17 +111,7 @@ func (r *R2) upload(ctx context.Context, filename string) (bool, error) {
 		return false, err
 	}
 
-	key := r.ArchiveKey()
-	head, err := r.client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(r.bucket),
-		Key:    aws.String(key),
-	})
-	if err == nil && head.Metadata["sha256"] == digest {
-		return false, nil
-	}
-	if err != nil && !isNotFound(err) {
-		return false, fmt.Errorf("consultar objeto %q: %w", key, err)
-	}
+	key := joinKey(r.prefix, "backup-"+time.Now().UTC().Format("2006-01-02T15-04-05.000000000Z")+".zip")
 
 	contentType := mime.TypeByExtension(filepath.Ext(filename))
 	if contentType == "" {
@@ -142,6 +133,7 @@ func (r *R2) upload(ctx context.Context, filename string) (bool, error) {
 		ContentLength: aws.Int64(info.Size()),
 		ContentType:   aws.String(contentType),
 		Metadata:      map[string]string{"sha256": digest},
+		IfNoneMatch:   aws.String("*"),
 	})
 	if err != nil {
 		return false, fmt.Errorf("enviar objeto %q: %w", key, err)

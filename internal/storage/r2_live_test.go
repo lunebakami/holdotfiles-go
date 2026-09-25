@@ -45,15 +45,24 @@ func TestR2Live(t *testing.T) {
 	}
 	client := remote.client.(*s3.Client)
 	remote.home = dir
-	key := remote.ArchiveKey()
 	// Remove exclusivamente o objeto sintético criado por este teste.
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cleanupCancel()
-		if _, err := client.DeleteObject(cleanupCtx, &s3.DeleteObjectInput{Bucket: aws.String(cfg.R2.Bucket), Key: aws.String(key)}); err != nil {
-			t.Error("falha ao remover objeto temporário")
-		} else {
-			t.Log("objeto temporário removido")
+		items, err := remote.ListBackupDetails(cleanupCtx)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		for _, item := range items {
+			if item.Computer != cfg.R2.Prefix {
+				continue
+			}
+			if _, err := client.DeleteObject(cleanupCtx, &s3.DeleteObjectInput{Bucket: aws.String(cfg.R2.Bucket), Key: aws.String(item.Key)}); err != nil {
+				t.Error("falha ao remover objeto temporário")
+			} else {
+				t.Log("objeto temporário removido")
+			}
 		}
 	}()
 	first, err := remote.Sync(ctx, []string{filename})
@@ -65,10 +74,10 @@ func TestR2Live(t *testing.T) {
 	}
 	t.Log("upload confirmado")
 	second, err := remote.Sync(ctx, []string{filename})
-	if err != nil || second.Skipped != 1 || second.Uploaded != 0 {
-		t.Fatal("verificação incremental falhou")
+	if err != nil || second.Uploaded != 1 {
+		t.Fatal("nova versão não foi criada")
 	}
-	t.Log("arquivo inalterado reconhecido")
+	t.Log("nova versão preservada")
 	archive, err := remote.Download(ctx, cfg.R2.Prefix)
 	if err != nil {
 		t.Fatal(err)
