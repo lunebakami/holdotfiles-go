@@ -6,18 +6,20 @@ Back up and restore dotfiles as ZIP archives using Cloudflare R2, with a termina
 
 ## Quick install
 
-Requirements: Linux, `curl`, `tar`, and Go 1.24.1 or later. The installer downloads
-the source code and Go dependencies, so an internet connection is required. Git
-and `sudo` are not required.
+Requirements: Linux `amd64` or `arm64`, `curl`, `tar`, and `sha256sum`. The
+installer downloads a prebuilt binary and verifies its SHA-256 checksum. Go, Git,
+and `sudo` are not required for the quick install. An internet connection is
+required.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/lunebakami/holdotfiles-go/main/install.sh | sh
 ```
 
-The installer builds the version published on GitHub and installs it to
-`~/.local/bin/hdt`. It creates configuration templates without overwriting
-existing files. Run the same command again to update. You can also clone the
-repository and run `sh install.sh` to build local changes.
+The installer downloads the latest Linux release, verifies its checksum, and
+installs `hdt` to `~/.local/bin/hdt`. It creates configuration templates
+without overwriting existing files. Run the same command again to update. You
+can also clone the repository and run `sh install.sh` to build local changes;
+that route requires Go 1.24.1 or later.
 
 If `~/.local/bin` is not on your `PATH`, add this to `~/.zshrc`:
 
@@ -25,9 +27,16 @@ If `~/.local/bin` is not on your `PATH`, add this to `~/.zshrc`:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Alternatives: `make install` uses the same installer; `sh install.sh --prefix
-/absolute/path` installs to `/absolute/path/bin/hdt`. Go users can run
-`go install ./cmd/hdt` from a checkout; this does not create configuration templates.
+Use `sh install.sh --prefix /absolute/path` from a checkout to install to
+`/absolute/path/bin/hdt`. Go users can run `go install ./cmd/hdt` from a
+checkout; this does not create configuration templates.
+
+## Releases
+
+Pushing a version tag (for example, `v0.1.0`) triggers GitHub Actions to build
+Linux `amd64` and `arm64` archives and publish them with a `SHA256SUMS` file.
+The quick installer downloads the matching archive from the latest GitHub
+release and verifies the checksum before installation.
 
 ## Features
 

@@ -1,0 +1,45 @@
+name: Release Linux binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Build Linux release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            package="dist/package-$arch"
+            mkdir -p "$package"
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
+              -ldflags="-s -w" -o "$package/hdt" ./cmd/hdt
+            cp .env.example "$package/.env.example"
+            cp .hdtconfig.example "$package/.hdtconfig.example"
+            tar -C "$package" -czf "dist/hdt-linux-$arch.tar.gz" hdt .env.example .hdtconfig.example
+            rm -rf "$package"
+          done
+          cd dist
+          sha256sum hdt-linux-amd64.tar.gz hdt-linux-arm64.tar.gz > SHA256SUMS
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/hdt-linux-amd64.tar.gz dist/hdt-linux-arm64.tar.gz dist/SHA256SUMS --title "${GITHUB_REF_NAME}" --generate-notes
